@@ -5,7 +5,7 @@
 
 import networkx as nx
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+import matplotlib.patches as mpatches  # used in legend
 from node import NodeType
 from compgraph import CompGraph
 
@@ -19,11 +19,11 @@ NODE_COLORS = {
 }
 
 
-def draw_graph(g: CompGraph, show_gradients: bool) -> plt.Figure:
-    fig, ax = plt.subplots(figsize=(10, 5))
+def draw_graph(g: CompGraph, show_gradients: bool, highlighted: str | None) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(14, 7))
     pos = _layout(g)
     _draw_edges(ax, g, pos)
-    _draw_nodes(ax, g, pos, show_gradients)
+    _draw_nodes(ax, g, pos, show_gradients, highlighted)
     _draw_legend(ax)
     ax.axis("off")
     fig.tight_layout()
@@ -41,16 +41,35 @@ def _node_color(node_type: NodeType) -> str:
     return NODE_COLORS[node_type]
 
 
-def _draw_nodes(ax: plt.Axes, g: CompGraph, pos: dict, show_gradients: bool):
+DARK_BACKGROUNDS = {"steelblue", "mediumseagreen", "tomato"}
+
+
+def _text_color(bg_color: str) -> str:
+    return "white" if bg_color in DARK_BACKGROUNDS else "#222222"
+
+
+def _draw_nodes(ax: plt.Axes, g: CompGraph, pos: dict, show_gradients: bool, highlighted: str | None):
     for node_id, (x, y) in pos.items():
         attrs = g.graph.nodes[node_id]
         color = _node_color(attrs["node_type"])
-        circle = mpatches.Circle((x, y), radius=0.08, color=color, zorder=3)
-        ax.add_patch(circle)
         label = f"{node_id}\n{attrs['value']:.3f}"
         if show_gradients:
             label += f"\ngrad: {attrs['gradient']:.3f}"
-        ax.text(x, y, label, ha="center", va="center", fontsize=7, zorder=4)
+        edge_color = "gold" if node_id == highlighted else "white"
+        lw = 3 if node_id == highlighted else 1
+        ax.text(
+            x, y, label,
+            ha="center", va="center",
+            fontsize=12, fontweight="bold",
+            color=_text_color(color),
+            zorder=4,
+            bbox=dict(
+                boxstyle="round,pad=0.5",
+                facecolor=color,
+                edgecolor=edge_color,
+                linewidth=lw,
+            ),
+        )
 
 
 def _draw_edges(ax: plt.Axes, g: CompGraph, pos: dict):
@@ -60,9 +79,9 @@ def _draw_edges(ax: plt.Axes, g: CompGraph, pos: dict):
         ax=ax,
         arrows=True,
         arrowstyle="->",
-        arrowsize=15,
+        arrowsize=20,
         edge_color="dimgray",
-        node_size=1200,
+        node_size=2000,
     )
 
 
@@ -73,4 +92,4 @@ def _draw_legend(ax: plt.Axes):
         mpatches.Patch(color="lightgray", label="operation"),
         mpatches.Patch(color="tomato", label="loss"),
     ]
-    ax.legend(handles=patches, loc="lower right", fontsize=8)
+    ax.legend(handles=patches, loc="lower right", fontsize=10)

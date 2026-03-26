@@ -42,6 +42,30 @@ class CompGraph:
             if node_type in dispatch:
                 dispatch[node_type](node_id)
 
+    def forward_pass_n(self, n: int):
+        """Run the forward pass for the first n computed nodes only."""
+        dispatch = {
+            NodeType.MULTIPLY: self._compute_multiply,
+            NodeType.ADD: self._compute_add,
+            NodeType.LOSS: self._compute_loss,
+        }
+        count = 0
+        for node_id in nx.topological_sort(self.graph):
+            if count >= n:
+                break
+            node_type = self.graph.nodes[node_id]["node_type"]
+            if node_type in dispatch:
+                dispatch[node_type](node_id)
+                count += 1
+
+    def computed_node_ids(self) -> list[str]:
+        """Return node ids that are computed (not INPUT or WEIGHT), in topological order."""
+        computed = {NodeType.MULTIPLY, NodeType.ADD, NodeType.LOSS}
+        return [
+            node_id for node_id in nx.topological_sort(self.graph)
+            if self.graph.nodes[node_id]["node_type"] in computed
+        ]
+
     def backward_pass(self):
         for node_id in self.graph.nodes:
             self.graph.nodes[node_id]["gradient"] = 0.0
