@@ -9,7 +9,12 @@
       "Bash(git rm:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "WebFetch(domain:ericsilberstein1.github.io)"
+      "WebFetch(domain:ericsilberstein1.github.io)",
+      "WebFetch(domain:marimo.io)",
+      "WebFetch(domain:docs.marimo.io)",
+      "WebFetch(domain:molab.marimo.io)",
+      "Bash(uv run marimo export html-wasm:*)",
+      "WebFetch(domain:pitosalas.github.io)"
     ]
   }
 }
