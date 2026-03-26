@@ -28,7 +28,7 @@ Each cell below is one lesson. Work through them top to bottom.
 | Cell | Lesson |
 |------|--------|
 | 3 | **The Model** — the turkey feather computation graph |
-| 4 | **The Forward Pass** — step through the computation one node at a time |
+| 4 | **Computing Loss** — step through the computation one node at a time |
 | 5 | **Changing a Weight** — use the slider, watch loss respond |
 | 6 | **The Backward Pass** — click Run to see gradients |
 | 7 | **Both Weights** — find the minimum |
@@ -65,6 +65,7 @@ nodes, which feed the prediction (add), which feeds the loss.
 @app.cell
 def _(mermaid_html, mo, turkey_feather):
     _g = turkey_feather(height=1.0, length=1.5, w1=1000, w2=3000, target=5000)
+    _g.forward_pass()
     mo.Html(mermaid_html(_g, False, None))
     return
 
@@ -72,7 +73,7 @@ def _(mermaid_html, mo, turkey_feather):
 @app.cell
 def _(mo):
     mo.md("""
-## The Forward Pass
+## Computing Loss
 
 The table below shows all three turkeys at once. Each column is a node in the
 computation graph. Click **Next →** to compute the next node for all three

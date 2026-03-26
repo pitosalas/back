@@ -273,6 +273,7 @@ We start with initial weights **w1 = 1000, w2 = 3000**.
 @app.cell
 def _(mermaid_html, mo, turkey_feather):
     _g = turkey_feather(height=1.0, length=1.5, w1=1000, w2=3000, target=5000)
+    _g.forward_pass()
     mo.Html(mermaid_html(_g, False, None))
     return
 
