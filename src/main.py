@@ -15,7 +15,8 @@ def _():
     from examples import turkey_feather
     from steps import forward_step_label
     from table_viz import forward_pass_table, COMPUTED_NODES
-    return (COMPUTED_NODES, forward_pass_table, forward_step_label, mermaid_html, mo, turkey_feather)
+    from chain_rule import chain_forward, chain_derivs, chain_html
+    return (COMPUTED_NODES, chain_derivs, chain_forward, chain_html, forward_pass_table, forward_step_label, mermaid_html, mo, turkey_feather)
 
 
 @app.cell
@@ -30,8 +31,8 @@ Each cell below is one lesson. Work through them top to bottom.
 | 3 | **The Model** — the turkey feather computation graph |
 | 4 | **Computing Loss** — step through the computation one node at a time |
 | 5 | **Changing a Weight** — use the slider, watch loss respond |
-| 6 | **The Backward Pass** — click Run to see gradients |
-| 7 | **Both Weights** — find the minimum |
+| 6 | **The Chain Rule** — how gradients flow backwards through a graph |
+| 7 | **The Backward Pass** — click Run to see gradients |
 """)
     return
 
@@ -55,18 +56,72 @@ The model makes its prediction as a weighted sum:
 
 > prediction = height × w1 + length × w2
 
-We start with initial weights **w1 = 1000, w2 = 3000**. The graph below shows
-the computation structure — inputs (blue) and weights (green) flow into multiply
-nodes, which feed the prediction (add), which feeds the loss.
+We start with initial weights **w1 = 1000, w2 = 3000**. Here is the full
+computation for Turkey 1, step by step:
 """)
     return
 
 
 @app.cell
-def _(mermaid_html, mo, turkey_feather):
-    _g = turkey_feather(height=1.0, length=1.5, w1=1000, w2=3000, target=5000)
-    _g.forward_pass()
-    mo.Html(mermaid_html(_g, False, None))
+def _(mo):
+    _blue = "color:#1a6bb5;font-weight:bold;"
+    _green = "color:#2a7a2a;font-weight:bold;"
+    _eq = "padding:0 8px;color:#555;"
+    _lbl = "text-align:right;padding-right:12px;color:#333;"
+    _val = "padding-left:12px;"
+
+    _html = f"""
+    <div style="font-family:monospace;font-size:1.05em;line-height:2.2;margin:16px 0;">
+      <table style="border-collapse:collapse;">
+        <tr>
+          <td style="{_lbl}">prediction</td>
+          <td style="{_eq}">=</td>
+          <td><span style="{_blue}">height &times; w1</span></td>
+          <td style="{_eq}">+</td>
+          <td><span style="{_green}">length &times; w2</span></td>
+          <td></td>
+        </tr>
+        <tr>
+          <td style="{_lbl}"></td>
+          <td style="{_eq}">=</td>
+          <td><span style="{_blue}">1.0 &times; 1000</span></td>
+          <td style="{_eq}">+</td>
+          <td><span style="{_green}">1.5 &times; 3000</span></td>
+          <td></td>
+        </tr>
+        <tr>
+          <td style="{_lbl}"></td>
+          <td style="{_eq}">=</td>
+          <td style="{_blue}">1,000</td>
+          <td style="{_eq}">+</td>
+          <td style="{_green}">4,500</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td style="{_lbl}"></td>
+          <td style="{_eq}">=</td>
+          <td colspan="3"><strong>5,500</strong></td>
+        </tr>
+        <tr><td colspan="5" style="padding-top:12px;"></td></tr>
+        <tr>
+          <td style="{_lbl}">loss</td>
+          <td style="{_eq}">=</td>
+          <td colspan="3">(prediction &minus; actual)&sup2;</td>
+        </tr>
+        <tr>
+          <td style="{_lbl}"></td>
+          <td style="{_eq}">=</td>
+          <td colspan="3">(5,500 &minus; 5,000)&sup2;</td>
+        </tr>
+        <tr>
+          <td style="{_lbl}"></td>
+          <td style="{_eq}">=</td>
+          <td colspan="3">500&sup2; = <strong>250,000</strong></td>
+        </tr>
+      </table>
+    </div>
+    """
+    mo.Html(_html)
     return
 
 
@@ -146,6 +201,84 @@ def _(mo):
 def _(COMPUTED_NODES, forward_pass_table, mo, w1_slider, w2_slider):
     _table = forward_pass_table(w1_slider.value, w2_slider.value, len(COMPUTED_NODES))
     mo.Html(_table)
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+## The Chain Rule
+
+Before we can run the backward pass on the turkey model, we need one idea: the
+**chain rule**. It tells us how to find the derivative of a composed function —
+one function fed into another.
+
+Consider **f(x) = (x²)³**. We can think of it as two steps:
+
+- **Step A:** square the input → A = x²
+- **Step B:** cube the result → B = A³
+
+Each step has a *local derivative* — how much its output changes when its input
+nudges a tiny bit. At x = 3:
+
+- dA/dx = 2x = **6** (squaring: derivative is 2×input)
+- dB/dA = 3A² = **243** (cubing: derivative is 3×input²)
+
+The chain rule says the overall derivative is just their product:
+**df/dx = 6 × 243 = 1458**
+
+Drag the slider below to see how the values and derivatives change with x.
+""")
+    return
+
+
+@app.cell
+def _(mo):
+    x_slider = mo.ui.slider(start=1, stop=5, step=0.5, value=3, label="x")
+    x_slider
+    return (x_slider,)
+
+
+@app.cell
+def _(chain_html, mo, x_slider):
+    mo.Html(chain_html(x_slider.value))
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+### From chain rule to partial derivatives
+
+The turkey model is the same idea as (x²)³ — a chain of operations. Follow w1
+through the computation: w1 feeds into **ht_term** (height × w1), which feeds
+into **prediction** (ht_term + len_term), which feeds into **loss**
+((prediction − actual)²). Three steps chained together.
+
+A **partial derivative** asks: holding w2 fixed, how much does loss change if I
+nudge w1 a tiny bit? We apply the chain rule backwards along that path,
+multiplying local derivatives at each step.
+
+At w1=1000, w2=3000, Turkey 1:
+
+| Step | Local derivative | Value |
+|------|-----------------|-------|
+| loss w.r.t. prediction | 2 × (5500 − 5000) | 1000 |
+| prediction w.r.t. ht_term | 1 (addition) | 1 |
+| ht_term w.r.t. w1 | height | 1.0 |
+
+Product for Turkey 1: 1000 × 1 × 1.0 = **1000**. Sum across all three turkeys
+gives the partial derivative of total loss w.r.t. w1 = **1875**.
+
+Since 1875 is positive, increasing w1 increases loss — so we decrease it.
+With a learning rate of 0.01:
+
+> new w1 = 1000 − 0.01 × 1875 = **981**
+
+Loss goes down. Repeat thousands of times and w1 converges to ~2311. The next
+lesson runs this process automatically for both weights at once — that's the
+backward pass.
+""")
     return
 
 

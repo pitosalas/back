@@ -136,43 +136,9 @@ def _():
         if ntype == NodeType.LOSS:
             pred_val = g.get_value(preds[0])
             target = g.targets[node_id]
-            return (f"**{node_id}** = ({preds[0]} − target)² "
+            return (f"**{node_id}** = ({preds[0]} − actual)² "
                     f"= ({pred_val:.2f} − {target:.2f})² = **{result:.2f}**")
         return f"**{node_id}** = {result:.2f}"
-
-    # ── mermaid_viz ───────────────────────────────────────────────────────────
-    _TYPE_CLASS = {
-        NodeType.INPUT: "input", NodeType.WEIGHT: "weight",
-        NodeType.MULTIPLY: "op", NodeType.ADD: "op", NodeType.LOSS: "loss",
-    }
-    _CLASS_DEFS = [
-        "classDef input fill:#4682B4,stroke:#336699,color:white,font-size:15px",
-        "classDef weight fill:#3CB371,stroke:#2d8a5e,color:white,font-size:15px",
-        "classDef op fill:#e0e0e0,stroke:#999,color:#222,font-size:15px",
-        "classDef loss fill:#FF6347,stroke:#cc4f3c,color:white,font-size:15px",
-        "classDef hl stroke:#FFD700,stroke-width:5px",
-    ]
-
-    def mermaid_html(g, show_gradients, highlighted):
-        lines = ["graph LR"] + [f"    {d}" for d in _CLASS_DEFS]
-        for nid in g.graph.nodes:
-            attrs = g.graph.nodes[nid]
-            label = f"{nid}<br/>{attrs['value']:.3f}"
-            lines.append(f'    {nid}["{label}"]:::{_TYPE_CLASS[attrs["node_type"]]}')
-        for f, t in g.graph.edges:
-            lines.append(f"    {f} --> {t}")
-        if highlighted:
-            lines.append(f"    class {highlighted} hl")
-        diagram = "\n".join(lines)
-        page = (f'<!DOCTYPE html><html><head>'
-                f'<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>'
-                f'</head><body style="margin:0;background:transparent">'
-                f'<div class="mermaid">{diagram}</div>'
-                f'<script>mermaid.initialize({{startOnLoad:true}});</script>'
-                f'</body></html>')
-        escaped = _html.escape(page, quote=True)
-        return (f'<iframe srcdoc="{escaped}" style="width:100%;height:500px;border:none;" '
-                f'onload="this.style.height=(this.contentWindow.document.body.scrollHeight+20)+\'px\'"></iframe>')
 
     # ── table_viz ─────────────────────────────────────────────────────────────
     GOLD = "#FFD700"
@@ -220,14 +186,71 @@ def _():
             rows.append(
                 "<tr>"
                 '<td style="padding:6px 10px;font-weight:bold;background:#f0d0d0">Sum of squares<br/>'
-                '<span style="font-weight:normal;font-size:12px">Σ(pred−target)²</span></td>'
+                '<span style="font-weight:normal;font-size:12px">Σ(pred−actual)²</span></td>'
                 f'<td colspan="{n_sp}" style="padding:6px 10px;background:#fafafa"></td>'
                 f'<td style="text-align:center;padding:6px 10px;font-weight:bold;background:#ffe0e0">{total:,.1f}</td>'
                 "</tr>"
             )
         return f'<table style="border-collapse:collapse;font-size:14px;width:100%">{"".join(rows)}</table>'
 
-    return (COMPUTED_NODES, forward_pass_table, forward_step_label, mermaid_html, mo, turkey_feather)
+    # ── chain_rule ────────────────────────────────────────────────────────────
+    def chain_forward(x):
+        a = x ** 2
+        b = a ** 3
+        return a, b
+
+    def chain_derivs(x):
+        a = x ** 2
+        da_dx = 2 * x
+        db_da = 3 * (a ** 2)
+        return da_dx, db_da, da_dx * db_da
+
+    def chain_html(x):
+        a, b = chain_forward(x)
+        da_dx, db_da, db_dx = chain_derivs(x)
+
+        node_style = (
+            "display:inline-block;padding:10px 18px;border-radius:8px;"
+            "font-size:1.1em;font-weight:bold;text-align:center;"
+        )
+        input_style = node_style + "background:#cce5ff;border:2px solid #4a90d9;"
+        op_style = node_style + "background:#f0f0f0;border:2px solid #aaa;font-size:0.9em;"
+        arrow_style = (
+            "display:inline-block;vertical-align:middle;"
+            "text-align:center;margin:0 6px;"
+        )
+
+        def arrow(label):
+            return (
+                f'<span style="{arrow_style}">'
+                f'<span style="font-size:0.8em;color:#666;">{label}</span><br>'
+                f'<span style="font-size:1.4em;">→</span>'
+                f'</span>'
+            )
+
+        diagram = (
+            f'<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:16px 0;">'
+            f'<span style="{input_style}">x = {x:g}</span>'
+            f'{arrow(f"local deriv = {da_dx:g}")}'
+            f'<span style="{op_style}">square<br><small>A = x²</small><br>A = {a:g}</span>'
+            f'{arrow(f"local deriv = {db_da:g}")}'
+            f'<span style="{op_style}">cube<br><small>B = A³</small><br>B = {b:g}</span>'
+            f'</div>'
+        )
+
+        summary = (
+            f'<p style="margin:8px 0;font-size:1em;">'
+            f'<strong>Chain rule at x = {x:g}:</strong> '
+            f'df/dx = (dA/dx) × (dB/dA) = {da_dx:g} × {db_da:g} = <strong>{db_dx:g}</strong>'
+            f'</p>'
+            f'<p style="margin:4px 0;color:#555;font-size:0.9em;">'
+            f'A tiny nudge to x causes the output to change by {db_dx:g}× that amount.'
+            f'</p>'
+        )
+
+        return f'<div style="font-family:sans-serif;">{diagram}{summary}</div>'
+
+    return (COMPUTED_NODES, chain_html, forward_pass_table, forward_step_label, mo, turkey_feather)
 
 
 @app.cell
@@ -239,9 +262,11 @@ Each cell below is one lesson. Work through them top to bottom.
 
 | Cell | Lesson |
 |------|--------|
-| 2 | **The Model** — the turkey feather computation graph |
-| 3 | **Computing Loss** — step through the computation one node at a time |
-| 4 | **Changing a Weight** — use the sliders, watch loss respond |
+| 3 | **The Model** — the turkey feather computation graph |
+| 4 | **Computing Loss** — step through the computation one node at a time |
+| 5 | **Changing a Weight** — use the slider, watch loss respond |
+| 6 | **The Chain Rule** — how gradients flow backwards through a graph |
+| 7 | **The Backward Pass** — click Run to see gradients |
 """)
     return
 
@@ -255,7 +280,7 @@ In Chapters 3 and 4, the book uses a small dataset of three turkeys. Each turkey
 has two measurements — **height** and **length** — and a known feather count
 that the model should learn to predict:
 
-| Turkey | Height (m) | Length (m) | Feathers (target) |
+| Turkey | Height (m) | Length (m) | Feathers (actual) |
 |--------|-----------|-----------|-------------------|
 | 1      | 1.00      | 1.50      | 5,000             |
 | 2      | 0.75      | 1.25      | 3,500             |
@@ -265,16 +290,68 @@ The model makes its prediction as a weighted sum:
 
 > prediction = height × w1 + length × w2
 
-We start with initial weights **w1 = 1000, w2 = 3000**.
+We start with initial weights **w1 = 1000, w2 = 3000**. Here is the full
+computation for Turkey 1, step by step:
 """)
     return
 
 
 @app.cell
-def _(mermaid_html, mo, turkey_feather):
-    _g = turkey_feather(height=1.0, length=1.5, w1=1000, w2=3000, target=5000)
-    _g.forward_pass()
-    mo.Html(mermaid_html(_g, False, None))
+def _(mo):
+    _blue = "color:#1a6bb5;font-weight:bold;"
+    _green = "color:#2a7a2a;font-weight:bold;"
+    _eq = "padding:0 8px;color:#555;"
+    _lbl = "text-align:right;padding-right:12px;color:#333;"
+
+    _html = f"""
+    <div style="font-family:monospace;font-size:1.05em;line-height:2.2;margin:16px 0;">
+      <table style="border-collapse:collapse;">
+        <tr>
+          <td style="{_lbl}">prediction</td>
+          <td style="{_eq}">=</td>
+          <td><span style="{_blue}">height &times; w1</span></td>
+          <td style="{_eq}">+</td>
+          <td><span style="{_green}">length &times; w2</span></td>
+        </tr>
+        <tr>
+          <td style="{_lbl}"></td>
+          <td style="{_eq}">=</td>
+          <td><span style="{_blue}">1.0 &times; 1000</span></td>
+          <td style="{_eq}">+</td>
+          <td><span style="{_green}">1.5 &times; 3000</span></td>
+        </tr>
+        <tr>
+          <td style="{_lbl}"></td>
+          <td style="{_eq}">=</td>
+          <td style="{_blue}">1,000</td>
+          <td style="{_eq}">+</td>
+          <td style="{_green}">4,500</td>
+        </tr>
+        <tr>
+          <td style="{_lbl}"></td>
+          <td style="{_eq}">=</td>
+          <td colspan="3"><strong>5,500</strong></td>
+        </tr>
+        <tr><td colspan="5" style="padding-top:12px;"></td></tr>
+        <tr>
+          <td style="{_lbl}">loss</td>
+          <td style="{_eq}">=</td>
+          <td colspan="3">(prediction &minus; actual)&sup2;</td>
+        </tr>
+        <tr>
+          <td style="{_lbl}"></td>
+          <td style="{_eq}">=</td>
+          <td colspan="3">(5,500 &minus; 5,000)&sup2;</td>
+        </tr>
+        <tr>
+          <td style="{_lbl}"></td>
+          <td style="{_eq}">=</td>
+          <td colspan="3">500&sup2; = <strong>250,000</strong></td>
+        </tr>
+      </table>
+    </div>
+    """
+    mo.Html(_html)
     return
 
 
@@ -283,8 +360,18 @@ def _(mo):
     mo.md("""
 ## Computing Loss
 
-Click **Next →** to compute each node for all three turkeys simultaneously.
-The gold column shows what's being computed.
+The table below shows all three turkeys at once. Each column is a node in the
+computation graph. Click **Next →** to compute the next node for all three
+turkeys simultaneously. The gold column is the one being computed.
+
+The first two computed columns are **height×w1** and **length×w2** — each input
+multiplied by its weight. These are the two *terms* of the weighted sum. w1 and
+w2 are the knobs the model will eventually learn to turn: a higher w1 means
+height matters more, a higher w2 means length matters more.
+
+**prediction** adds the two terms together — that's the model's guess at the
+feather count. **loss** measures how wrong that guess is: (prediction − actual)².
+Squaring makes all errors positive and penalizes large errors more than small ones.
 """)
     return
 
@@ -300,14 +387,16 @@ def _(mo):
 @app.cell
 def _(COMPUTED_NODES, forward_pass_table, forward_step_label, mo, next_btn, prev_btn, turkey_feather):
     _step = max(0, min(next_btn.value - prev_btn.value, len(COMPUTED_NODES)))
+
     if _step == 0:
-        _explanation = mo.md("Click **Next →** to begin.")
+        _explanation = mo.md("Click **Next →** to begin the forward pass.")
     else:
         _node = COMPUTED_NODES[_step - 1]
         _g_ex = turkey_feather(height=1.0, length=1.5, w1=1000, w2=3000, target=5000)
         _g_ex.forward_pass_n(_step)
-        _suffix = "  \n✓ Done." if _step == len(COMPUTED_NODES) else ""
-        _explanation = mo.md(f"**Step {_step}/{len(COMPUTED_NODES)}:** {forward_step_label(_g_ex, _node)}{_suffix}")
+        _suffix = "  \n✓ Forward pass complete." if _step == len(COMPUTED_NODES) else ""
+        _explanation = mo.md(f"**Step {_step} of {len(COMPUTED_NODES)}:** {forward_step_label(_g_ex, _node)}{_suffix}")
+
     mo.vstack([mo.Html(forward_pass_table(1000, 3000, _step)), _explanation])
     return
 
@@ -317,10 +406,15 @@ def _(mo):
     mo.md("""
 ## Changing a Weight
 
-Drag the sliders to change w1 and w2. Watch every prediction and loss update
-instantly across all three turkeys. Try to minimise the sum of squares.
+So far w1 and w2 have been fixed at 1000 and 3000. But those were just a starting
+guess — the whole point of training is to find better values.
 
-(Hint: the book's converged values are around **w1 = 2311, w2 = 1633**.)
+Try dragging the **w1** slider below. w1 is the weight on **height**: a higher w1
+means the model thinks tall turkeys have more feathers. Watch how every prediction
+and every loss changes instantly across all three turkeys.
+
+Your goal: find a value of w1 that makes the total loss as small as possible.
+(Hint: the book's converged value is around 2311.)
 """)
     return
 
@@ -335,7 +429,86 @@ def _(mo):
 
 @app.cell
 def _(COMPUTED_NODES, forward_pass_table, mo, w1_slider, w2_slider):
-    mo.Html(forward_pass_table(w1_slider.value, w2_slider.value, len(COMPUTED_NODES)))
+    _table = forward_pass_table(w1_slider.value, w2_slider.value, len(COMPUTED_NODES))
+    mo.Html(_table)
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+## The Chain Rule
+
+Before we can run the backward pass on the turkey model, we need one idea: the
+**chain rule**. It tells us how to find the derivative of a composed function —
+one function fed into another.
+
+Consider **f(x) = (x²)³**. We can think of it as two steps:
+
+- **Step A:** square the input → A = x²
+- **Step B:** cube the result → B = A³
+
+Each step has a *local derivative* — how much its output changes when its input
+nudges a tiny bit. At x = 3:
+
+- dA/dx = 2x = **6** (squaring: derivative is 2×input)
+- dB/dA = 3A² = **243** (cubing: derivative is 3×input²)
+
+The chain rule says the overall derivative is just their product:
+**df/dx = 6 × 243 = 1458**
+
+Drag the slider below to see how the values and derivatives change with x.
+""")
+    return
+
+
+@app.cell
+def _(mo):
+    x_slider = mo.ui.slider(start=1, stop=5, step=0.5, value=3, label="x")
+    x_slider
+    return (x_slider,)
+
+
+@app.cell
+def _(chain_html, mo, x_slider):
+    mo.Html(chain_html(x_slider.value))
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+### From chain rule to partial derivatives
+
+The turkey model is the same idea as (x²)³ — a chain of operations. Follow w1
+through the computation: w1 feeds into **ht_term** (height × w1), which feeds
+into **prediction** (ht_term + len_term), which feeds into **loss**
+((prediction − actual)²). Three steps chained together.
+
+A **partial derivative** asks: holding w2 fixed, how much does loss change if I
+nudge w1 a tiny bit? We apply the chain rule backwards along that path,
+multiplying local derivatives at each step.
+
+At w1=1000, w2=3000, Turkey 1:
+
+| Step | Local derivative | Value |
+|------|-----------------|-------|
+| loss w.r.t. prediction | 2 × (5500 − 5000) | 1000 |
+| prediction w.r.t. ht_term | 1 (addition) | 1 |
+| ht_term w.r.t. w1 | height | 1.0 |
+
+Product for Turkey 1: 1000 × 1 × 1.0 = **1000**. Sum across all three turkeys
+gives the partial derivative of total loss w.r.t. w1 = **1875**.
+
+Since 1875 is positive, increasing w1 increases loss — so we decrease it.
+With a learning rate of 0.01:
+
+> new w1 = 1000 − 0.01 × 1875 = **981**
+
+Loss goes down. Repeat thousands of times and w1 converges to ~2311. The next
+lesson runs this process automatically for both weights at once — that's the
+backward pass.
+""")
     return
 
 
