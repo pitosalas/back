@@ -54,6 +54,33 @@ def _():
         def get_value(self, node_id):
             return self.graph.nodes[node_id]["value"]
 
+        def get_gradient(self, node_id):
+            return self.graph.nodes[node_id]["gradient"]
+
+        def forward_pass(self):
+            dispatch = {NodeType.MULTIPLY: self._mul, NodeType.ADD: self._add, NodeType.LOSS: self._loss}
+            for node_id in nx.topological_sort(self.graph):
+                ntype = self.graph.nodes[node_id]["node_type"]
+                if ntype in dispatch:
+                    dispatch[ntype](node_id)
+
+        def backward_pass(self):
+            for node_id in self.graph.nodes:
+                self.graph.nodes[node_id]["gradient"] = 0.0
+            loss_id = self._find_loss_node()
+            self.graph.nodes[loss_id]["gradient"] = 1.0
+            for node_id in reversed(list(nx.topological_sort(self.graph))):
+                node_grad = self.graph.nodes[node_id]["gradient"]
+                for pred_id in self.graph.predecessors(node_id):
+                    local_deriv = self.graph[pred_id][node_id]["local_deriv"]
+                    self.graph.nodes[pred_id]["gradient"] += node_grad * local_deriv
+
+        def _find_loss_node(self):
+            for node_id in self.graph.nodes:
+                if self.graph.nodes[node_id]["node_type"] == NodeType.LOSS:
+                    return node_id
+            raise ValueError("No loss node found in graph")
+
         def forward_pass_n(self, n):
             dispatch = {
                 NodeType.MULTIPLY: self._mul,
@@ -193,6 +220,70 @@ def _():
             )
         return f'<table style="border-collapse:collapse;font-size:14px;width:100%">{"".join(rows)}</table>'
 
+    # ── backward table ────────────────────────────────────────────────────────
+    BACKWARD_NODES = ["loss", "prediction", "ht_term", "len_term", "w1", "w2"]
+    _BACKWARD_LABELS = {"loss": "loss", "prediction": "prediction",
+                        "ht_term": "height×w1", "len_term": "length×w2",
+                        "w1": "w1", "w2": "w2"}
+    BACKWARD_STEP_LABELS = [
+        "**loss** gradient = 1. The backward pass asks: how much does each node affect the loss? "
+        "The loss node *is* the loss, so ∂L/∂loss = 1 — a one-unit nudge to the loss node changes loss by exactly one unit. "
+        "This seed value of 1 is what the rest of the backward pass multiplies through.",
+        "**prediction** gradient = loss_grad × 2(pred − actual). "
+        "loss = (pred − actual)², so its local derivative w.r.t. prediction is 2(pred − actual) — "
+        "the power rule: d/dx[x²] = 2x, where x = (pred − actual). "
+        "For Turkey 1: 1 × 2 × (5500 − 5000) = 1 × 2 × 500 = **1000**. "
+        "Each turkey differs because each has a different prediction error.",
+        "**ht_term** gradient = prediction_grad × 1. Addition passes the gradient through unchanged.",
+        "**len_term** gradient = prediction_grad × 1. Same rule — addition local derivative is always 1.",
+        "**w1** gradient = ht_term_grad × height. The sum row shows the total across all three turkeys.",
+        "**w2** gradient = len_term_grad × length. Backward pass complete — both weight gradients ready.",
+    ]
+
+    def backward_pass_table(w1, w2, step):
+        hdrs = [
+            '<th style="padding:6px 10px;background:#ddd;text-align:left">Turkey</th>',
+            f'<th style="padding:6px 10px;background:{_HEADER_BG};text-align:center">actual</th>',
+        ]
+        for i, node in enumerate(BACKWARD_NODES):
+            bg = GOLD if (i + 1) == step else _HEADER_BG
+            hdrs.append(f'<th style="padding:6px 10px;background:{bg};text-align:center">{_BACKWARD_LABELS[node]}</th>')
+        rows = ["<tr>" + "".join(hdrs) + "</tr>"]
+        for t in TURKEYS:
+            g = turkey_feather(height=t["height"], length=t["length"], w1=w1, w2=w2, target=t["target"])
+            g.forward_pass()
+            g.backward_pass()
+            cells = [
+                f'<td style="padding:6px 10px;font-weight:bold;background:#f8f8f8">{t["label"]}</td>',
+                _cell(f"{t['target']:,g}", _HEADER_BG, False),
+            ]
+            for i, node in enumerate(BACKWARD_NODES):
+                col_idx = i + 1
+                is_active = col_idx == step
+                bg = GOLD if is_active else "white"
+                if col_idx <= step:
+                    cells.append(_cell(f"{g.get_gradient(node):,.1f}", bg, is_active))
+                else:
+                    cells.append(_cell("—", bg, False))
+            rows.append("<tr>" + "".join(cells) + "</tr>")
+        w1_col = BACKWARD_NODES.index("w1") + 1
+        w2_col = BACKWARD_NODES.index("w2") + 1
+        if step >= w1_col:
+            tw1, tw2 = 0.0, 0.0
+            for t in TURKEYS:
+                g = turkey_feather(height=t["height"], length=t["length"], w1=w1, w2=w2, target=t["target"])
+                g.forward_pass()
+                g.backward_pass()
+                tw1 += g.get_gradient("w1")
+                tw2 += g.get_gradient("w2")
+            lbl = '<td style="padding:6px 10px;font-weight:bold;background:#f0d0d0">Sum (all turkeys)</td>'
+            sp = f'<td colspan="{w1_col}" style="padding:6px 10px;background:#fafafa"></td>'
+            c1 = f'<td style="text-align:center;padding:6px 10px;font-weight:bold;background:#ffe0e0">{tw1:,.1f}</td>'
+            c2 = (f'<td style="text-align:center;padding:6px 10px;font-weight:bold;background:#ffe0e0">{tw2:,.1f}</td>'
+                  if step >= w2_col else "")
+            rows.append("<tr>" + lbl + sp + c1 + c2 + "</tr>")
+        return f'<table style="border-collapse:collapse;font-size:14px;width:100%">{"".join(rows)}</table>'
+
     # ── chain_rule ────────────────────────────────────────────────────────────
     def chain_forward(x):
         a = x ** 2
@@ -223,7 +314,7 @@ def _():
         def arrow(label):
             return (
                 f'<span style="{arrow_style}">'
-                f'<span style="font-size:0.8em;color:#666;">{label}</span><br>'
+                f'<span style="font-size:0.8em;color:#000;">{label}</span><br>'
                 f'<span style="font-size:1.4em;">→</span>'
                 f'</span>'
             )
@@ -243,14 +334,14 @@ def _():
             f'<strong>Chain rule at x = {x:g}:</strong> '
             f'df/dx = (dA/dx) × (dB/dA) = {da_dx:g} × {db_da:g} = <strong>{db_dx:g}</strong>'
             f'</p>'
-            f'<p style="margin:4px 0;color:#555;font-size:0.9em;">'
+            f'<p style="margin:4px 0;color:#000;font-size:0.9em;">'
             f'A tiny nudge to x causes the output to change by {db_dx:g}× that amount.'
             f'</p>'
         )
 
         return f'<div style="font-family:sans-serif;">{diagram}{summary}</div>'
 
-    return (COMPUTED_NODES, chain_html, forward_pass_table, forward_step_label, mo, turkey_feather)
+    return (BACKWARD_NODES, BACKWARD_STEP_LABELS, COMPUTED_NODES, TURKEYS, backward_pass_table, chain_html, forward_pass_table, forward_step_label, mo, turkey_feather)
 
 
 @app.cell
@@ -300,8 +391,8 @@ computation for Turkey 1, step by step:
 def _(mo):
     _blue = "color:#1a6bb5;font-weight:bold;"
     _green = "color:#2a7a2a;font-weight:bold;"
-    _eq = "padding:0 8px;color:#555;"
-    _lbl = "text-align:right;padding-right:12px;color:#333;"
+    _eq = "padding:0 8px;color:#000;"
+    _lbl = "text-align:right;padding-right:12px;color:#000;"
 
     _html = f"""
     <div style="font-family:monospace;font-size:1.05em;line-height:2.2;margin:16px 0;">
@@ -510,6 +601,73 @@ lesson runs this process automatically for both weights at once — that's the
 backward pass.
 """)
     return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+## The Backward Pass
+
+In the last lesson we computed ∂L/∂w1 = 1875 by hand — tracing one chain and
+multiplying three local derivatives. That worked, but a real network has dozens
+of weights. Doing it by hand for each one is impractical.
+
+The **backward pass** automates the whole thing in one sweep. The key insight is
+to reuse work: every node already "knows" how much its output affects the loss,
+because the node behind it told it. We call that number the node's **gradient**
+— it's the partial derivative of total loss with respect to that node's value.
+
+The algorithm starts at the loss node, whose gradient is 1 by definition (loss
+affects loss 1-for-1). Then it walks backwards: each node's gradient equals its
+own gradient times the local derivative on the edge to its successor. Weights at
+the far end of the graph receive their gradient last — exactly the value we need
+for the weight update rule.
+
+The table below shows the completed forward pass for all three turkeys. Click
+**Run Backward Pass** to see the gradient on every node in Turkey 1's graph.
+""")
+    return
+
+
+@app.cell
+def _(mo):
+    back_prev = mo.ui.button(label="← Prev", value=0, on_click=lambda v: v + 1)
+    back_next = mo.ui.button(label="Next →", value=0, on_click=lambda v: v + 1)
+    mo.hstack([back_prev, back_next], gap=1)
+    return (back_next, back_prev)
+
+
+@app.cell
+def _(BACKWARD_NODES, BACKWARD_STEP_LABELS, back_next, back_prev, backward_pass_table, mo):
+    _step = max(0, min(back_next.value - back_prev.value, len(BACKWARD_NODES)))
+    if _step == 0:
+        _explanation = mo.md("Click **Next →** to begin the backward pass.")
+    else:
+        _suffix = "  \n✓ Backward pass complete." if _step == len(BACKWARD_NODES) else ""
+        _explanation = mo.md(f"**Step {_step} of {len(BACKWARD_NODES)}:** {BACKWARD_STEP_LABELS[_step - 1]}{_suffix}")
+    mo.vstack([mo.Html(backward_pass_table(1000, 3000, _step)), _explanation])
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+### What do we do with the gradients?
+
+Once the backward pass is complete, the sum row gives us the total gradient for
+each weight across all three turkeys: **∂L/∂w1 = 1875** and **∂L/∂w2 = 3500**.
+These match the values we computed by hand in the chain rule lesson.
+
+Both are positive — increasing either weight increases loss — so we decrease both.
+With a learning rate of 0.01:
+
+> new w1 = 1000 − 0.01 × 1875 = **981.25**
+
+> new w2 = 3000 − 0.01 × 3500 = **2965.00**
+
+Repeat forward pass → backward pass → weight update thousands of times and the
+weights converge to w1 ≈ 2311, w2 ≈ 1633. That's gradient descent.
+""")
 
 
 if __name__ == "__main__":

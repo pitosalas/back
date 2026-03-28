@@ -11,12 +11,11 @@ app = marimo.App()
 @app.cell
 def _():
     import marimo as mo
-    from mermaid_viz import mermaid_html
-    from examples import turkey_feather
+    from examples import turkey_feather, TURKEYS
     from steps import forward_step_label
-    from table_viz import forward_pass_table, COMPUTED_NODES
+    from table_viz import forward_pass_table, backward_pass_table, COMPUTED_NODES, BACKWARD_NODES, BACKWARD_STEP_LABELS
     from chain_rule import chain_forward, chain_derivs, chain_html
-    return (COMPUTED_NODES, chain_derivs, chain_forward, chain_html, forward_pass_table, forward_step_label, mermaid_html, mo, turkey_feather)
+    return (BACKWARD_NODES, BACKWARD_STEP_LABELS, COMPUTED_NODES, TURKEYS, backward_pass_table, chain_derivs, chain_forward, chain_html, forward_pass_table, forward_step_label, mo, turkey_feather)
 
 
 @app.cell
@@ -66,8 +65,8 @@ computation for Turkey 1, step by step:
 def _(mo):
     _blue = "color:#1a6bb5;font-weight:bold;"
     _green = "color:#2a7a2a;font-weight:bold;"
-    _eq = "padding:0 8px;color:#555;"
-    _lbl = "text-align:right;padding-right:12px;color:#333;"
+    _eq = "padding:0 8px;color:#000;"
+    _lbl = "text-align:right;padding-right:12px;color:#000;"
     _val = "padding-left:12px;"
 
     _html = f"""
@@ -280,6 +279,73 @@ lesson runs this process automatically for both weights at once — that's the
 backward pass.
 """)
     return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+## The Backward Pass
+
+In the last lesson we computed ∂L/∂w1 = 1875 by hand — tracing one chain and
+multiplying three local derivatives. That worked, but a real network has dozens
+of weights. Doing it by hand for each one is impractical.
+
+The **backward pass** automates the whole thing in one sweep. The key insight is
+to reuse work: every node already "knows" how much its output affects the loss,
+because the node behind it told it. We call that number the node's **gradient**
+— it's the partial derivative of total loss with respect to that node's value.
+
+The algorithm starts at the loss node, whose gradient is 1 by definition (loss
+affects loss 1-for-1). Then it walks backwards: each node's gradient equals its
+own gradient times the local derivative on the edge to its successor. Weights at
+the far end of the graph receive their gradient last — exactly the value we need
+for the weight update rule.
+
+The table below shows the completed forward pass for all three turkeys. Click
+**Run Backward Pass** to see the gradient on every node in Turkey 1's graph.
+""")
+    return
+
+
+@app.cell
+def _(mo):
+    back_prev = mo.ui.button(label="← Prev", value=0, on_click=lambda v: v + 1)
+    back_next = mo.ui.button(label="Next →", value=0, on_click=lambda v: v + 1)
+    mo.hstack([back_prev, back_next], gap=1)
+    return (back_next, back_prev)
+
+
+@app.cell
+def _(BACKWARD_NODES, BACKWARD_STEP_LABELS, back_next, back_prev, backward_pass_table, mo):
+    _step = max(0, min(back_next.value - back_prev.value, len(BACKWARD_NODES)))
+    if _step == 0:
+        _explanation = mo.md("Click **Next →** to begin the backward pass.")
+    else:
+        _suffix = "  \n✓ Backward pass complete." if _step == len(BACKWARD_NODES) else ""
+        _explanation = mo.md(f"**Step {_step} of {len(BACKWARD_NODES)}:** {BACKWARD_STEP_LABELS[_step - 1]}{_suffix}")
+    mo.vstack([mo.Html(backward_pass_table(1000, 3000, _step)), _explanation])
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+### What do we do with the gradients?
+
+Once the backward pass is complete, the sum row gives us the total gradient for
+each weight across all three turkeys: **∂L/∂w1 = 1875** and **∂L/∂w2 = 3500**.
+These match the values we computed by hand in the chain rule lesson.
+
+Both are positive — increasing either weight increases loss — so we decrease both.
+With a learning rate of 0.01:
+
+> new w1 = 1000 − 0.01 × 1875 = **981.25**
+
+> new w2 = 3000 − 0.01 × 3500 = **2965.00**
+
+Repeat forward pass → backward pass → weight update thousands of times and the
+weights converge to w1 ≈ 2311, w2 ≈ 1633. That's gradient descent.
+""")
 
 
 if __name__ == "__main__":

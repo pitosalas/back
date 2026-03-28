@@ -18,7 +18,7 @@ TYPE_CLASS = {
 CLASS_DEFS = [
     "classDef input fill:#4682B4,stroke:#336699,color:white,font-size:15px",
     "classDef weight fill:#3CB371,stroke:#2d8a5e,color:white,font-size:15px",
-    "classDef op fill:#e0e0e0,stroke:#999,color:#222,font-size:15px",
+    "classDef op fill:#e0e0e0,stroke:#999,color:#000,font-size:15px",
     "classDef loss fill:#FF6347,stroke:#cc4f3c,color:white,font-size:15px",
     "classDef hl stroke:#FFD700,stroke-width:5px",
 ]

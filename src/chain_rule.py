@@ -39,7 +39,7 @@ def chain_html(x: float) -> str:
     def arrow(label: str) -> str:
         return (
             f'<span style="{arrow_style}">'
-            f'<span style="font-size:0.8em;color:#666;">{label}</span><br>'
+            f'<span style="font-size:0.8em;color:#000;">{label}</span><br>'
             f'<span style="font-size:1.4em;">→</span>'
             f'</span>'
         )
@@ -60,7 +60,7 @@ def chain_html(x: float) -> str:
         f'<strong>Chain rule at x = {x:g}:</strong> '
         f'df/dx = (dA/dx) × (dB/dA) = {da_dx:g} × {db_da:g} = <strong>{db_dx:g}</strong>'
         f'</p>'
-        f'<p style="margin:4px 0;color:#555;font-size:0.9em;">'
+        f'<p style="margin:4px 0;color:#000;font-size:0.9em;">'
         f'A tiny nudge to x causes the output to change by {db_dx:g}× that amount.'
         f'</p>'
     )

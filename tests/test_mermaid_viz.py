@@ -28,3 +28,11 @@ def test_mermaid_html_wraps_in_iframe():
     assert "<iframe" in result
     assert "mermaid" in result
     assert "graph LR" in result
+
+
+def test_build_mermaid_shows_gradients():
+    g = turkey_feather(height=1.0, length=1.5, w1=1000, w2=3000, target=5000)
+    g.forward_pass()
+    g.backward_pass()
+    result = build_mermaid(g, True, None)
+    assert "grad:" in result
