@@ -13,7 +13,6 @@ app = marimo.App()
 def _():
     from dataclasses import dataclass
     from enum import Enum
-    import html as _html
     import networkx as nx
     import marimo as mo
 
@@ -96,11 +95,6 @@ def _():
                     dispatch[ntype](node_id)
                     count += 1
 
-        def computed_node_ids(self):
-            computed = {NodeType.MULTIPLY, NodeType.ADD, NodeType.LOSS}
-            return [n for n in nx.topological_sort(self.graph)
-                    if self.graph.nodes[n]["node_type"] in computed]
-
         def _mul(self, node_id):
             preds = list(self.graph.predecessors(node_id))
             a, b = self.graph.nodes[preds[0]]["value"], self.graph.nodes[preds[1]]["value"]
@@ -121,32 +115,89 @@ def _():
             self.graph.nodes[node_id]["value"] = (pred_val - target) ** 2
             self.graph[pred_id][node_id]["local_deriv"] = 2 * (pred_val - target)
 
-    # ── examples ──────────────────────────────────────────────────────────────
-    TURKEYS = [
-        {"label": "Turkey 1", "height": 1.00, "length": 1.50, "target": 5000},
-        {"label": "Turkey 2", "height": 0.75, "length": 1.25, "target": 3500},
-        {"label": "Turkey 3", "height": 1.25, "length": 1.00, "target": 4500},
-    ]
+    # ── Dataset + examples ────────────────────────────────────────────────────
+    @dataclass
+    class Dataset:
+        name: str
+        samples: list
+        feat1_name: str
+        feat2_name: str
+        target_name: str
+        w1_start: float
+        w2_start: float
+        w1_min: float
+        w1_max: float
+        w2_min: float
+        w2_max: float
+        w_step: float
 
-    def turkey_feather(height, length, w1, w2, target):
+    def build_graph(sample, dataset, w1, w2):
+        f1, f2 = dataset.feat1_name, dataset.feat2_name
         g = CompGraph()
-        g.add_node(Node("height", NodeType.INPUT, height))
-        g.add_node(Node("length", NodeType.INPUT, length))
+        g.add_node(Node(f1, NodeType.INPUT, sample[f1]))
+        g.add_node(Node(f2, NodeType.INPUT, sample[f2]))
         g.add_node(Node("w1", NodeType.WEIGHT, w1))
         g.add_node(Node("w2", NodeType.WEIGHT, w2))
         g.add_node(Node("ht_term", NodeType.MULTIPLY, 0.0))
         g.add_node(Node("len_term", NodeType.MULTIPLY, 0.0))
         g.add_node(Node("prediction", NodeType.ADD, 0.0))
         g.add_node(Node("loss", NodeType.LOSS, 0.0))
-        g.set_target("loss", target)
-        g.add_edge(Edge("height", "ht_term"))
+        g.set_target("loss", sample["target"])
+        g.add_edge(Edge(f1, "ht_term"))
         g.add_edge(Edge("w1", "ht_term"))
-        g.add_edge(Edge("length", "len_term"))
+        g.add_edge(Edge(f2, "len_term"))
         g.add_edge(Edge("w2", "len_term"))
         g.add_edge(Edge("ht_term", "prediction"))
         g.add_edge(Edge("len_term", "prediction"))
         g.add_edge(Edge("prediction", "loss"))
         return g
+
+    TURKEYS = [
+        {"label": "Turkey 1", "height": 1.00, "length": 1.50, "target": 5000},
+        {"label": "Turkey 2", "height": 0.75, "length": 1.25, "target": 3500},
+        {"label": "Turkey 3", "height": 1.25, "length": 1.00, "target": 4500},
+    ]
+
+    TURKEY_DATASET = Dataset(
+        name="Turkey Feathers",
+        samples=TURKEYS,
+        feat1_name="height",
+        feat2_name="length",
+        target_name="feathers",
+        w1_start=1000.0,
+        w2_start=3000.0,
+        w1_min=0.0,
+        w1_max=5000.0,
+        w2_min=0.0,
+        w2_max=5000.0,
+        w_step=50.0,
+    )
+
+    CARS_DATASET = Dataset(
+        name="Auto MPG",
+        samples=[
+            {"label": "Chevrolet Chevelle", "weight": 3.504, "horsepower": 1.30, "target": 18.0},
+            {"label": "Buick Skylark 320",  "weight": 3.693, "horsepower": 1.65, "target": 15.0},
+            {"label": "Datsun PL510",       "weight": 2.110, "horsepower": 0.95, "target": 28.0},
+            {"label": "VW 1131 Deluxe",     "weight": 2.372, "horsepower": 0.75, "target": 30.0},
+            {"label": "AMC Hornet",         "weight": 2.833, "horsepower": 0.90, "target": 26.0},
+            {"label": "Pontiac Safari",     "weight": 4.746, "horsepower": 2.30, "target": 10.0},
+            {"label": "Ford Galaxie 500",   "weight": 4.382, "horsepower": 1.98, "target": 14.0},
+            {"label": "Toyota Corolla",     "weight": 2.130, "horsepower": 0.70, "target": 33.0},
+            {"label": "Honda Civic",        "weight": 1.835, "horsepower": 0.65, "target": 31.0},
+            {"label": "Dodge Challenger",   "weight": 3.609, "horsepower": 1.50, "target": 18.0},
+        ],
+        feat1_name="weight",
+        feat2_name="horsepower",
+        target_name="mpg",
+        w1_start=5.0,
+        w2_start=5.0,
+        w1_min=-20.0,
+        w1_max=20.0,
+        w2_min=-20.0,
+        w2_max=20.0,
+        w_step=0.5,
+    )
 
     # ── steps ─────────────────────────────────────────────────────────────────
     def forward_step_label(g, node_id):
@@ -170,135 +221,163 @@ def _():
     # ── table_viz ─────────────────────────────────────────────────────────────
     GOLD = "#FFD700"
     _HEADER_BG = "#f0f0f0"
-    _INPUT_NODES = ["height", "length", "w1", "w2"]
     COMPUTED_NODES = ["ht_term", "len_term", "prediction", "loss"]
-    _ALL_NODES = _INPUT_NODES + COMPUTED_NODES
-    _NODE_LABELS = {"ht_term": "height×w1", "len_term": "length×w2",
-                    "prediction": "prediction", "loss": "loss"}
+    BACKWARD_NODES = ["loss", "prediction", "ht_term", "len_term", "w1", "w2"]
 
     def _cell(value, bg, bold):
         w = "font-weight:bold;" if bold else ""
         return f'<td style="text-align:center;padding:6px 10px;background:{bg};{w}">{value}</td>'
 
-    def forward_pass_table(w1, w2, step):
-        hdrs = ['<th style="padding:6px 10px;background:#ddd;text-align:left">Turkey</th>']
-        for node in _ALL_NODES:
+    def _header_row(step, dataset):
+        f1, f2 = dataset.feat1_name, dataset.feat2_name
+        all_nodes = [f1, f2, "w1", "w2"] + COMPUTED_NODES
+        labels = {f1: f1, f2: f2, "w1": "w1", "w2": "w2",
+                  "ht_term": f"{f1}×w1", "len_term": f"{f2}×w2",
+                  "prediction": "prediction", "loss": "loss"}
+        cells = ['<th style="padding:6px 10px;background:#ddd;text-align:left">Sample</th>']
+        for node in all_nodes:
             ci = COMPUTED_NODES.index(node) + 1 if node in COMPUTED_NODES else None
             bg = GOLD if ci == step else _HEADER_BG
-            hdrs.append(f'<th style="padding:6px 10px;background:{bg};text-align:center">{_NODE_LABELS.get(node, node)}</th>')
-        rows = ["<tr>" + "".join(hdrs) + "</tr>"]
-        for t in TURKEYS:
-            g = turkey_feather(height=t["height"], length=t["length"], w1=w1, w2=w2, target=t["target"])
+            cells.append(f'<th style="padding:6px 10px;background:{bg};text-align:center">{labels[node]}</th>')
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    def _sample_row(t, w1, w2, step, dataset):
+        f1, f2 = dataset.feat1_name, dataset.feat2_name
+        input_nodes = [f1, f2, "w1", "w2"]
+        g = build_graph(t, dataset, w1, w2)
+        g.forward_pass_n(step)
+        cells = [f'<td style="padding:6px 10px;font-weight:bold;background:#f8f8f8">{t["label"]}</td>']
+        for node in input_nodes + COMPUTED_NODES:
+            ci = COMPUTED_NODES.index(node) + 1 if node in COMPUTED_NODES else None
+            is_active = ci == step
+            bg = GOLD if is_active else "white"
+            if node in input_nodes:
+                cells.append(_cell(f"{g.get_value(node):g}", bg, False))
+            elif ci is not None and ci <= step:
+                cells.append(_cell(f"{g.get_value(node):,.2f}", bg, is_active))
+            else:
+                cells.append(_cell("—", bg, False))
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    def _total_loss_row(w1, w2, step, dataset):
+        if step < COMPUTED_NODES.index("loss") + 1:
+            return ""
+        total = 0.0
+        for t in dataset.samples:
+            g = build_graph(t, dataset, w1, w2)
             g.forward_pass_n(step)
-            cells = [f'<td style="padding:6px 10px;font-weight:bold;background:#f8f8f8">{t["label"]}</td>']
-            for node in _ALL_NODES:
-                ci = COMPUTED_NODES.index(node) + 1 if node in COMPUTED_NODES else None
-                active = ci == step
-                bg = GOLD if active else "white"
-                if node in _INPUT_NODES:
-                    cells.append(_cell(f"{g.get_value(node):g}", bg, False))
-                elif ci is not None and ci <= step:
-                    cells.append(_cell(f"{g.get_value(node):,.1f}", bg, active))
-                else:
-                    cells.append(_cell("—", bg, False))
-            rows.append("<tr>" + "".join(cells) + "</tr>")
-        loss_idx = COMPUTED_NODES.index("loss") + 1
-        if step >= loss_idx:
-            total = 0.0
-            for t in TURKEYS:
-                g = turkey_feather(height=t["height"], length=t["length"], w1=w1, w2=w2, target=t["target"])
-                g.forward_pass_n(step)
-                total += g.get_value("loss")
-            n_sp = len(_ALL_NODES) - 1
-            rows.append(
-                "<tr>"
-                '<td style="padding:6px 10px;font-weight:bold;background:#f0d0d0">Sum of squares<br/>'
-                '<span style="font-weight:normal;font-size:12px">Σ(pred−actual)²</span></td>'
-                f'<td colspan="{n_sp}" style="padding:6px 10px;background:#fafafa"></td>'
-                f'<td style="text-align:center;padding:6px 10px;font-weight:bold;background:#ffe0e0">{total:,.1f}</td>'
-                "</tr>"
-            )
+            total += g.get_value("loss")
+        label = '<td style="padding:6px 10px;font-weight:bold;background:#f0d0d0">Sum of squares<br/><span style="font-weight:normal;font-size:12px">Σ(pred−actual)²</span></td>'
+        spacer = '<td colspan="7" style="padding:6px 10px;background:#fafafa"></td>'
+        total_cell = f'<td style="text-align:center;padding:6px 10px;font-weight:bold;background:#ffe0e0">{total:,.2f}</td>'
+        return "<tr>" + label + spacer + total_cell + "</tr>"
+
+    def forward_pass_table(w1, w2, step, dataset):
+        rows = [_header_row(step, dataset)]
+        for t in dataset.samples:
+            rows.append(_sample_row(t, w1, w2, step, dataset))
+        total_row = _total_loss_row(w1, w2, step, dataset)
+        if total_row:
+            rows.append(total_row)
         return f'<table style="border-collapse:collapse;font-size:14px;width:100%">{"".join(rows)}</table>'
 
-    # ── backward table ────────────────────────────────────────────────────────
-    BACKWARD_NODES = ["loss", "prediction", "ht_term", "len_term", "w1", "w2"]
-    _BACKWARD_LABELS = {"loss": "loss", "prediction": "prediction",
-                        "ht_term": "height×w1", "len_term": "length×w2",
-                        "w1": "w1", "w2": "w2"}
-    BACKWARD_STEP_LABELS = [
-        "**loss** gradient = 1. The backward pass asks: how much does each node affect the loss? "
-        "The loss node *is* the loss, so ∂L/∂loss = 1 — a one-unit nudge to the loss node changes loss by exactly one unit. "
-        "This seed value of 1 is what the rest of the backward pass multiplies through.",
-        "**prediction** gradient = loss_grad × 2(pred − actual). "
-        "loss = (pred − actual)², so its local derivative w.r.t. prediction is 2(pred − actual) — "
-        "the power rule: d/dx[x²] = 2x, where x = (pred − actual). "
-        "For Turkey 1: 1 × 2 × (5500 − 5000) = 1 × 2 × 500 = **1000**. "
-        "Each turkey differs because each has a different prediction error.",
-        "**ht_term** gradient = prediction_grad × 1. Addition passes the gradient through unchanged.",
-        "**len_term** gradient = prediction_grad × 1. Same rule — addition local derivative is always 1.",
-        "**w1** gradient = ht_term_grad × height. The sum row shows the total across all three turkeys.",
-        "**w2** gradient = len_term_grad × length. Backward pass complete — both weight gradients ready.",
-    ]
-
-    def backward_pass_table(w1, w2, step):
-        hdrs = [
-            '<th style="padding:6px 10px;background:#ddd;text-align:left">Turkey</th>',
+    def _back_header_row(step, dataset):
+        f1, f2 = dataset.feat1_name, dataset.feat2_name
+        back_labels = {"loss": "loss", "prediction": "prediction",
+                       "ht_term": f"{f1}×w1", "len_term": f"{f2}×w2", "w1": "w1", "w2": "w2"}
+        cells = [
+            '<th style="padding:6px 10px;background:#ddd;text-align:left">Sample</th>',
             f'<th style="padding:6px 10px;background:{_HEADER_BG};text-align:center">actual</th>',
         ]
         for i, node in enumerate(BACKWARD_NODES):
             bg = GOLD if (i + 1) == step else _HEADER_BG
-            hdrs.append(f'<th style="padding:6px 10px;background:{bg};text-align:center">{_BACKWARD_LABELS[node]}</th>')
-        rows = ["<tr>" + "".join(hdrs) + "</tr>"]
-        for t in TURKEYS:
-            g = turkey_feather(height=t["height"], length=t["length"], w1=w1, w2=w2, target=t["target"])
-            g.forward_pass()
-            g.backward_pass()
-            cells = [
-                f'<td style="padding:6px 10px;font-weight:bold;background:#f8f8f8">{t["label"]}</td>',
-                _cell(f"{t['target']:,g}", _HEADER_BG, False),
-            ]
-            for i, node in enumerate(BACKWARD_NODES):
-                col_idx = i + 1
-                is_active = col_idx == step
-                bg = GOLD if is_active else "white"
-                if col_idx <= step:
-                    cells.append(_cell(f"{g.get_gradient(node):,.1f}", bg, is_active))
-                else:
-                    cells.append(_cell("—", bg, False))
-            rows.append("<tr>" + "".join(cells) + "</tr>")
+            cells.append(f'<th style="padding:6px 10px;background:{bg};text-align:center">{back_labels[node]}</th>')
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    def _back_sample_row(t, w1, w2, step, dataset):
+        g = build_graph(t, dataset, w1, w2)
+        g.forward_pass()
+        g.backward_pass()
+        cells = [
+            f'<td style="padding:6px 10px;font-weight:bold;background:#f8f8f8">{t["label"]}</td>',
+            _cell(f"{t['target']:,g}", _HEADER_BG, False),
+        ]
+        for i, node in enumerate(BACKWARD_NODES):
+            col_idx = i + 1
+            is_active = col_idx == step
+            bg = GOLD if is_active else "white"
+            if col_idx <= step:
+                cells.append(_cell(f"{g.get_gradient(node):,.2f}", bg, is_active))
+            else:
+                cells.append(_cell("—", bg, False))
+        return "<tr>" + "".join(cells) + "</tr>"
+
+    def _back_sum_row(w1, w2, step, dataset):
         w1_col = BACKWARD_NODES.index("w1") + 1
         w2_col = BACKWARD_NODES.index("w2") + 1
-        if step >= w1_col:
-            tw1, tw2 = 0.0, 0.0
-            for t in TURKEYS:
-                g = turkey_feather(height=t["height"], length=t["length"], w1=w1, w2=w2, target=t["target"])
-                g.forward_pass()
-                g.backward_pass()
-                tw1 += g.get_gradient("w1")
-                tw2 += g.get_gradient("w2")
-            lbl = '<td style="padding:6px 10px;font-weight:bold;background:#f0d0d0">Sum (all turkeys)</td>'
-            sp = f'<td colspan="{w1_col}" style="padding:6px 10px;background:#fafafa"></td>'
-            c1 = f'<td style="text-align:center;padding:6px 10px;font-weight:bold;background:#ffe0e0">{tw1:,.1f}</td>'
-            c2 = (f'<td style="text-align:center;padding:6px 10px;font-weight:bold;background:#ffe0e0">{tw2:,.1f}</td>'
-                  if step >= w2_col else "")
-            rows.append("<tr>" + lbl + sp + c1 + c2 + "</tr>")
+        if step < w1_col:
+            return ""
+        total_w1, total_w2 = 0.0, 0.0
+        for t in dataset.samples:
+            g = build_graph(t, dataset, w1, w2)
+            g.forward_pass()
+            g.backward_pass()
+            total_w1 += g.get_gradient("w1")
+            total_w2 += g.get_gradient("w2")
+        label = '<td style="padding:6px 10px;font-weight:bold;background:#f0d0d0">Sum (all samples)</td>'
+        spacer = f'<td colspan="{w1_col}" style="padding:6px 10px;background:#fafafa"></td>'
+        w1_cell = f'<td style="text-align:center;padding:6px 10px;font-weight:bold;background:#ffe0e0">{total_w1:,.2f}</td>'
+        w2_cell = (f'<td style="text-align:center;padding:6px 10px;font-weight:bold;background:#ffe0e0">{total_w2:,.2f}</td>'
+                   if step >= w2_col else "")
+        return "<tr>" + label + spacer + w1_cell + w2_cell + "</tr>"
+
+    def backward_pass_table(w1, w2, step, dataset):
+        rows = [_back_header_row(step, dataset)]
+        for t in dataset.samples:
+            rows.append(_back_sample_row(t, w1, w2, step, dataset))
+        sum_row = _back_sum_row(w1, w2, step, dataset)
+        if sum_row:
+            rows.append(sum_row)
         return f'<table style="border-collapse:collapse;font-size:14px;width:100%">{"".join(rows)}</table>'
 
+    def backward_step_labels(dataset):
+        s0 = dataset.samples[0]
+        g = build_graph(s0, dataset, dataset.w1_start, dataset.w2_start)
+        g.forward_pass()
+        pred = g.get_value("prediction")
+        error = pred - s0["target"]
+        pred_grad = 2 * error
+        f1, f2 = dataset.feat1_name, dataset.feat2_name
+        return [
+            "**loss** gradient = 1. The backward pass asks: how much does each node affect the loss? "
+            "The loss node *is* the loss, so ∂L/∂loss = 1 — a one-unit nudge to the loss node changes loss by exactly one unit. "
+            "This seed value of 1 is what the rest of the backward pass multiplies through.",
+            f"**prediction** gradient = loss_grad × 2(pred − actual). "
+            f"loss = (pred − actual)², so its local derivative w.r.t. prediction is 2(pred − actual) — "
+            f"the power rule: d/dx[x²] = 2x, where x = (pred − actual). "
+            f"For {s0['label']}: 1 × 2 × ({pred:.2f} − {s0['target']:.2f}) = 1 × 2 × {error:.2f} = **{pred_grad:.2f}**. "
+            f"Each sample differs because each has a different prediction error.",
+            f"**ht_term** gradient = prediction_grad × 1. Addition passes the gradient through unchanged.",
+            f"**len_term** gradient = prediction_grad × 1. Same rule — addition local derivative is always 1.",
+            f"**w1** gradient = ht_term_grad × {f1}. The sum row shows the total across all samples.",
+            f"**w2** gradient = len_term_grad × {f2}. Backward pass complete — both weight gradients ready.",
+        ]
+
     # ── chain_rule ────────────────────────────────────────────────────────────
-    def chain_forward(x):
+    def _chain_forward(x):
         a = x ** 2
         b = a ** 3
         return a, b
 
-    def chain_derivs(x):
+    def _chain_derivs(x):
         a = x ** 2
         da_dx = 2 * x
         db_da = 3 * (a ** 2)
         return da_dx, db_da, da_dx * db_da
 
     def chain_html(x):
-        a, b = chain_forward(x)
-        da_dx, db_da, db_dx = chain_derivs(x)
+        a, b = _chain_forward(x)
+        da_dx, db_da, db_dx = _chain_derivs(x)
 
         node_style = (
             "display:inline-block;padding:10px 18px;border-radius:8px;"
@@ -341,7 +420,8 @@ def _():
 
         return f'<div style="font-family:sans-serif;">{diagram}{summary}</div>'
 
-    return (BACKWARD_NODES, BACKWARD_STEP_LABELS, COMPUTED_NODES, TURKEYS, backward_pass_table, chain_html, forward_pass_table, forward_step_label, mo, turkey_feather)
+    return (BACKWARD_NODES, CARS_DATASET, COMPUTED_NODES, TURKEY_DATASET, backward_pass_table,
+            backward_step_labels, build_graph, chain_html, forward_pass_table, forward_step_label, mo)
 
 
 @app.cell
@@ -349,46 +429,73 @@ def _(mo):
     mo.md("""
 # Backpropagation Explorer
 
-Each cell below is one lesson. Work through them top to bottom.
+Each section below is one lesson. Work through them top to bottom.
 
-| Cell | Lesson |
-|------|--------|
-| 3 | **The Model** — the turkey feather computation graph |
-| 4 | **Computing Loss** — step through the computation one node at a time |
-| 5 | **Changing a Weight** — use the slider, watch loss respond |
-| 6 | **The Chain Rule** — how gradients flow backwards through a graph |
-| 7 | **The Backward Pass** — click Run to see gradients |
+| Section | Lesson |
+|---------|--------|
+| 1 | **The Model** — the computation graph for the first sample |
+| 2 | **Computing Loss** — step through the forward pass |
+| 3 | **Changing a Weight** — use sliders, watch loss respond |
+| 4 | **The Chain Rule** — how gradients flow backwards |
+| 5 | **The Backward Pass** — automated gradient computation |
+
+**Select a dataset to explore:**
 """)
     return
 
 
 @app.cell
-def _(mo):
-    mo.md("""
+def _(CARS_DATASET, TURKEY_DATASET, mo):
+    dataset_selector = mo.ui.dropdown(
+        {"Turkey Feathers": TURKEY_DATASET, "Auto MPG": CARS_DATASET},
+        value="Turkey Feathers",
+        label="Dataset",
+    )
+    dataset_selector
+    return (dataset_selector,)
+
+
+@app.cell
+def _(dataset_selector):
+    dataset = dataset_selector.value
+    return (dataset,)
+
+
+@app.cell
+def _(dataset, mo):
+    _s0 = dataset.samples[0]
+    _f1, _f2 = dataset.feat1_name, dataset.feat2_name
+    mo.md(f"""
 ## The Model
 
-In Chapters 3 and 4, the book uses a small dataset of three turkeys. Each turkey
-has two measurements — **height** and **length** — and a known feather count
-that the model should learn to predict:
-
-| Turkey | Height (m) | Length (m) | Feathers (actual) |
-|--------|-----------|-----------|-------------------|
-| 1      | 1.00      | 1.50      | 5,000             |
-| 2      | 0.75      | 1.25      | 3,500             |
-| 3      | 1.25      | 1.00      | 4,500             |
+The **{dataset.name}** dataset has {len(dataset.samples)} samples. Each has two measurements —
+**{_f1}** and **{_f2}** — and a known **{dataset.target_name}** the model should learn to predict.
 
 The model makes its prediction as a weighted sum:
 
-> prediction = height × w1 + length × w2
+> prediction = {_f1} × w1 + {_f2} × w2
 
-We start with initial weights **w1 = 1000, w2 = 3000**. Here is the full
-computation for Turkey 1, step by step:
+We start with initial weights **w1 = {dataset.w1_start:g}, w2 = {dataset.w2_start:g}**.
+Here is the full computation for **{_s0['label']}**, step by step:
 """)
     return
 
 
 @app.cell
-def _(mo):
+def _(build_graph, dataset, mo):
+    _s0 = dataset.samples[0]
+    _g = build_graph(_s0, dataset, dataset.w1_start, dataset.w2_start)
+    _g.forward_pass()
+    _f1, _f2 = dataset.feat1_name, dataset.feat2_name
+    _f1v = _s0[_f1]
+    _f2v = _s0[_f2]
+    _ht = _g.get_value("ht_term")
+    _lt = _g.get_value("len_term")
+    _pred = _g.get_value("prediction")
+    _target = _s0["target"]
+    _err = _pred - _target
+    _loss = _g.get_value("loss")
+
     _blue = "color:#1a6bb5;font-weight:bold;"
     _green = "color:#2a7a2a;font-weight:bold;"
     _eq = "padding:0 8px;color:#000;"
@@ -400,28 +507,28 @@ def _(mo):
         <tr>
           <td style="{_lbl}">prediction</td>
           <td style="{_eq}">=</td>
-          <td><span style="{_blue}">height &times; w1</span></td>
+          <td><span style="{_blue}">{_f1} &times; w1</span></td>
           <td style="{_eq}">+</td>
-          <td><span style="{_green}">length &times; w2</span></td>
+          <td><span style="{_green}">{_f2} &times; w2</span></td>
         </tr>
         <tr>
           <td style="{_lbl}"></td>
           <td style="{_eq}">=</td>
-          <td><span style="{_blue}">1.0 &times; 1000</span></td>
+          <td><span style="{_blue}">{_f1v:g} &times; {dataset.w1_start:g}</span></td>
           <td style="{_eq}">+</td>
-          <td><span style="{_green}">1.5 &times; 3000</span></td>
+          <td><span style="{_green}">{_f2v:g} &times; {dataset.w2_start:g}</span></td>
         </tr>
         <tr>
           <td style="{_lbl}"></td>
           <td style="{_eq}">=</td>
-          <td style="{_blue}">1,000</td>
+          <td style="{_blue}">{_ht:,.2f}</td>
           <td style="{_eq}">+</td>
-          <td style="{_green}">4,500</td>
+          <td style="{_green}">{_lt:,.2f}</td>
         </tr>
         <tr>
           <td style="{_lbl}"></td>
           <td style="{_eq}">=</td>
-          <td colspan="3"><strong>5,500</strong></td>
+          <td colspan="3"><strong>{_pred:,.2f}</strong></td>
         </tr>
         <tr><td colspan="5" style="padding-top:12px;"></td></tr>
         <tr>
@@ -432,12 +539,12 @@ def _(mo):
         <tr>
           <td style="{_lbl}"></td>
           <td style="{_eq}">=</td>
-          <td colspan="3">(5,500 &minus; 5,000)&sup2;</td>
+          <td colspan="3">({_pred:,.2f} &minus; {_target:g})&sup2;</td>
         </tr>
         <tr>
           <td style="{_lbl}"></td>
           <td style="{_eq}">=</td>
-          <td colspan="3">500&sup2; = <strong>250,000</strong></td>
+          <td colspan="3">{_err:,.2f}&sup2; = <strong>{_loss:,.2f}</strong></td>
         </tr>
       </table>
     </div>
@@ -447,28 +554,28 @@ def _(mo):
 
 
 @app.cell
-def _(mo):
-    mo.md("""
+def _(dataset, mo):
+    _f1, _f2 = dataset.feat1_name, dataset.feat2_name
+    mo.md(f"""
 ## Computing Loss
 
-The table below shows all three turkeys at once. Each column is a node in the
-computation graph. Click **Next →** to compute the next node for all three
-turkeys simultaneously. The gold column is the one being computed.
+The table below shows all {len(dataset.samples)} samples at once. Each column is a node in the
+computation graph. Click **Next →** to compute the next node for all samples
+simultaneously. The gold column is the one being computed.
 
-The first two computed columns are **height×w1** and **length×w2** — each input
+The first two computed columns are **{_f1}×w1** and **{_f2}×w2** — each input
 multiplied by its weight. These are the two *terms* of the weighted sum. w1 and
-w2 are the knobs the model will eventually learn to turn: a higher w1 means
-height matters more, a higher w2 means length matters more.
+w2 are the knobs the model will eventually learn to tune.
 
-**prediction** adds the two terms together — that's the model's guess at the
-feather count. **loss** measures how wrong that guess is: (prediction − actual)².
-Squaring makes all errors positive and penalizes large errors more than small ones.
+**prediction** adds the two terms together. **loss** measures how wrong that guess
+is: (prediction − actual)². Squaring makes all errors positive and penalizes large
+errors more than small ones.
 """)
     return
 
 
 @app.cell
-def _(mo):
+def _(dataset, mo):
     prev_btn = mo.ui.button(label="← Prev", value=0, on_click=lambda v: v + 1)
     next_btn = mo.ui.button(label="Next →", value=0, on_click=lambda v: v + 1)
     mo.hstack([prev_btn, next_btn], gap=1)
@@ -476,52 +583,51 @@ def _(mo):
 
 
 @app.cell
-def _(COMPUTED_NODES, forward_pass_table, forward_step_label, mo, next_btn, prev_btn, turkey_feather):
+def _(COMPUTED_NODES, build_graph, dataset, forward_pass_table, forward_step_label, mo, next_btn, prev_btn):
     _step = max(0, min(next_btn.value - prev_btn.value, len(COMPUTED_NODES)))
-
     if _step == 0:
         _explanation = mo.md("Click **Next →** to begin the forward pass.")
     else:
         _node = COMPUTED_NODES[_step - 1]
-        _g_ex = turkey_feather(height=1.0, length=1.5, w1=1000, w2=3000, target=5000)
+        _g_ex = build_graph(dataset.samples[0], dataset, dataset.w1_start, dataset.w2_start)
         _g_ex.forward_pass_n(_step)
         _suffix = "  \n✓ Forward pass complete." if _step == len(COMPUTED_NODES) else ""
         _explanation = mo.md(f"**Step {_step} of {len(COMPUTED_NODES)}:** {forward_step_label(_g_ex, _node)}{_suffix}")
-
-    mo.vstack([mo.Html(forward_pass_table(1000, 3000, _step)), _explanation])
+    mo.vstack([mo.Html(forward_pass_table(dataset.w1_start, dataset.w2_start, _step, dataset)), _explanation])
     return
 
 
 @app.cell
-def _(mo):
-    mo.md("""
+def _(dataset, mo):
+    _f1 = dataset.feat1_name
+    mo.md(f"""
 ## Changing a Weight
 
-So far w1 and w2 have been fixed at 1000 and 3000. But those were just a starting
-guess — the whole point of training is to find better values.
+So far w1 and w2 have been fixed at their starting values. But those are just an
+initial guess — the whole point of training is to find better values.
 
-Try dragging the **w1** slider below. w1 is the weight on **height**: a higher w1
-means the model thinks tall turkeys have more feathers. Watch how every prediction
-and every loss changes instantly across all three turkeys.
+Try dragging the **w1** slider below. w1 is the weight on **{_f1}**: a higher w1
+means the model thinks {_f1} matters more. Watch how every prediction and every
+loss changes instantly across all samples.
 
-Your goal: find a value of w1 that makes the total loss as small as possible.
-(Hint: the book's converged value is around 2311.)
+Your goal: find values of w1 and w2 that minimize the total loss.
 """)
     return
 
 
 @app.cell
-def _(mo):
-    w1_slider = mo.ui.slider(start=0, stop=5000, step=50, value=1000, label="w1")
-    w2_slider = mo.ui.slider(start=0, stop=5000, step=50, value=3000, label="w2")
+def _(dataset, mo):
+    w1_slider = mo.ui.slider(start=dataset.w1_min, stop=dataset.w1_max,
+                              step=dataset.w_step, value=dataset.w1_start, label="w1")
+    w2_slider = mo.ui.slider(start=dataset.w2_min, stop=dataset.w2_max,
+                              step=dataset.w_step, value=dataset.w2_start, label="w2")
     mo.vstack([w1_slider, w2_slider])
     return (w1_slider, w2_slider)
 
 
 @app.cell
-def _(COMPUTED_NODES, forward_pass_table, mo, w1_slider, w2_slider):
-    _table = forward_pass_table(w1_slider.value, w2_slider.value, len(COMPUTED_NODES))
-    mo.Html(_table)
+def _(COMPUTED_NODES, dataset, forward_pass_table, mo, w1_slider, w2_slider):
+    mo.Html(forward_pass_table(w1_slider.value, w2_slider.value, len(COMPUTED_NODES), dataset))
     return
 
 
@@ -530,9 +636,9 @@ def _(mo):
     mo.md("""
 ## The Chain Rule
 
-Before we can run the backward pass on the turkey model, we need one idea: the
-**chain rule**. It tells us how to find the derivative of a composed function —
-one function fed into another.
+Before we can run the backward pass, we need one idea: the **chain rule**. It
+tells us how to find the derivative of a composed function — one function fed
+into another.
 
 Consider **f(x) = (x²)³**. We can think of it as two steps:
 
@@ -567,12 +673,33 @@ def _(chain_html, mo, x_slider):
 
 
 @app.cell
-def _(mo):
-    mo.md("""
+def _(build_graph, dataset, mo):
+    _s0 = dataset.samples[0]
+    _f1, _f2 = dataset.feat1_name, dataset.feat2_name
+    _g = build_graph(_s0, dataset, dataset.w1_start, dataset.w2_start)
+    _g.forward_pass()
+    _pred = _g.get_value("prediction")
+    _target = _s0["target"]
+    _loss_deriv = 2 * (_pred - _target)
+    _f1_val = _s0[_f1]
+    _chain_prod = _loss_deriv * 1 * _f1_val
+
+    _total_w1 = 0.0
+    for _s in dataset.samples:
+        _gi = build_graph(_s, dataset, dataset.w1_start, dataset.w2_start)
+        _gi.forward_pass()
+        _gi.backward_pass()
+        _total_w1 += _gi.get_gradient("w1")
+    _new_w1 = dataset.w1_start - 0.01 * _total_w1
+    _direction = ("positive — increasing w1 increases loss — so we decrease it"
+                  if _total_w1 > 0 else
+                  "negative — increasing w1 decreases loss — so we increase it")
+
+    mo.md(f"""
 ### From chain rule to partial derivatives
 
-The turkey model is the same idea as (x²)³ — a chain of operations. Follow w1
-through the computation: w1 feeds into **ht_term** (height × w1), which feeds
+The {dataset.name} model is the same idea as (x²)³ — a chain of operations. Follow w1
+through the computation: w1 feeds into **ht_term** ({_f1} × w1), which feeds
 into **prediction** (ht_term + len_term), which feeds into **loss**
 ((prediction − actual)²). Three steps chained together.
 
@@ -580,23 +707,23 @@ A **partial derivative** asks: holding w2 fixed, how much does loss change if I
 nudge w1 a tiny bit? We apply the chain rule backwards along that path,
 multiplying local derivatives at each step.
 
-At w1=1000, w2=3000, Turkey 1:
+At w1={dataset.w1_start:g}, w2={dataset.w2_start:g}, {_s0['label']}:
 
 | Step | Local derivative | Value |
 |------|-----------------|-------|
-| loss w.r.t. prediction | 2 × (5500 − 5000) | 1000 |
+| loss w.r.t. prediction | 2 × ({_pred:.2f} − {_target:g}) | {_loss_deriv:.2f} |
 | prediction w.r.t. ht_term | 1 (addition) | 1 |
-| ht_term w.r.t. w1 | height | 1.0 |
+| ht_term w.r.t. w1 | {_f1} | {_f1_val:g} |
 
-Product for Turkey 1: 1000 × 1 × 1.0 = **1000**. Sum across all three turkeys
-gives the partial derivative of total loss w.r.t. w1 = **1875**.
+Product for {_s0['label']}: {_loss_deriv:.2f} × 1 × {_f1_val:g} = **{_chain_prod:.2f}**. Sum across all
+{len(dataset.samples)} samples gives the partial derivative of total loss w.r.t. w1 = **{_total_w1:.2f}**.
 
-Since 1875 is positive, increasing w1 increases loss — so we decrease it.
+{_total_w1:.2f} is {_direction}.
 With a learning rate of 0.01:
 
-> new w1 = 1000 − 0.01 × 1875 = **981**
+> new w1 = {dataset.w1_start:g} − 0.01 × {_total_w1:.2f} = **{_new_w1:.2f}**
 
-Loss goes down. Repeat thousands of times and w1 converges to ~2311. The next
+Loss goes down. Repeat thousands of times and the weights converge. The next
 lesson runs this process automatically for both weights at once — that's the
 backward pass.
 """)
@@ -604,33 +731,27 @@ backward pass.
 
 
 @app.cell
-def _(mo):
-    mo.md("""
+def _(dataset, mo):
+    _n = len(dataset.samples)
+    mo.md(f"""
 ## The Backward Pass
 
-In the last lesson we computed ∂L/∂w1 = 1875 by hand — tracing one chain and
+In the last lesson we computed ∂L/∂w1 by hand — tracing one chain and
 multiplying three local derivatives. That worked, but a real network has dozens
 of weights. Doing it by hand for each one is impractical.
 
-The **backward pass** automates the whole thing in one sweep. The key insight is
-to reuse work: every node already "knows" how much its output affects the loss,
-because the node behind it told it. We call that number the node's **gradient**
-— it's the partial derivative of total loss with respect to that node's value.
+The **backward pass** automates the whole thing in one sweep. It starts at the
+loss node (gradient = 1 by definition) and walks backwards: each node's gradient
+equals its own gradient times the local derivative on each edge. Every weight's
+gradient comes out in one sweep.
 
-The algorithm starts at the loss node, whose gradient is 1 by definition (loss
-affects loss 1-for-1). Then it walks backwards: each node's gradient equals its
-own gradient times the local derivative on the edge to its successor. Weights at
-the far end of the graph receive their gradient last — exactly the value we need
-for the weight update rule.
-
-The table below shows the completed forward pass for all three turkeys. Click
-**Run Backward Pass** to see the gradient on every node in Turkey 1's graph.
+The table below steps through the backward pass for all {_n} {dataset.name} samples.
 """)
     return
 
 
 @app.cell
-def _(mo):
+def _(dataset, mo):
     back_prev = mo.ui.button(label="← Prev", value=0, on_click=lambda v: v + 1)
     back_next = mo.ui.button(label="Next →", value=0, on_click=lambda v: v + 1)
     mo.hstack([back_prev, back_next], gap=1)
@@ -638,36 +759,46 @@ def _(mo):
 
 
 @app.cell
-def _(BACKWARD_NODES, BACKWARD_STEP_LABELS, back_next, back_prev, backward_pass_table, mo):
+def _(BACKWARD_NODES, back_next, back_prev, backward_pass_table, backward_step_labels, dataset, mo):
+    _labels = backward_step_labels(dataset)
     _step = max(0, min(back_next.value - back_prev.value, len(BACKWARD_NODES)))
     if _step == 0:
         _explanation = mo.md("Click **Next →** to begin the backward pass.")
     else:
         _suffix = "  \n✓ Backward pass complete." if _step == len(BACKWARD_NODES) else ""
-        _explanation = mo.md(f"**Step {_step} of {len(BACKWARD_NODES)}:** {BACKWARD_STEP_LABELS[_step - 1]}{_suffix}")
-    mo.vstack([mo.Html(backward_pass_table(1000, 3000, _step)), _explanation])
+        _explanation = mo.md(f"**Step {_step} of {len(BACKWARD_NODES)}:** {_labels[_step - 1]}{_suffix}")
+    mo.vstack([mo.Html(backward_pass_table(dataset.w1_start, dataset.w2_start, _step, dataset)), _explanation])
     return
 
 
 @app.cell
-def _(mo):
-    mo.md("""
+def _(build_graph, dataset, mo):
+    _total_w1, _total_w2 = 0.0, 0.0
+    for _s in dataset.samples:
+        _g = build_graph(_s, dataset, dataset.w1_start, dataset.w2_start)
+        _g.forward_pass()
+        _g.backward_pass()
+        _total_w1 += _g.get_gradient("w1")
+        _total_w2 += _g.get_gradient("w2")
+    _new_w1 = dataset.w1_start - 0.01 * _total_w1
+    _new_w2 = dataset.w2_start - 0.01 * _total_w2
+
+    mo.md(f"""
 ### What do we do with the gradients?
 
 Once the backward pass is complete, the sum row gives us the total gradient for
-each weight across all three turkeys: **∂L/∂w1 = 1875** and **∂L/∂w2 = 3500**.
-These match the values we computed by hand in the chain rule lesson.
+each weight across all {len(dataset.samples)} samples: **∂L/∂w1 = {_total_w1:.2f}** and **∂L/∂w2 = {_total_w2:.2f}**.
 
-Both are positive — increasing either weight increases loss — so we decrease both.
-With a learning rate of 0.01:
+Applying the weight update rule with learning rate 0.01:
 
-> new w1 = 1000 − 0.01 × 1875 = **981.25**
+> new w1 = {dataset.w1_start:g} − 0.01 × {_total_w1:.2f} = **{_new_w1:.2f}**
 
-> new w2 = 3000 − 0.01 × 3500 = **2965.00**
+> new w2 = {dataset.w2_start:g} − 0.01 × {_total_w2:.2f} = **{_new_w2:.2f}**
 
 Repeat forward pass → backward pass → weight update thousands of times and the
-weights converge to w1 ≈ 2311, w2 ≈ 1633. That's gradient descent.
+weights converge. That's gradient descent.
 """)
+    return
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-from examples import turkey_feather, TURKEYS
+from examples import turkey_feather, TURKEYS, build_graph, CARS_DATASET
 
 
 def test_forward_pass_values():
@@ -53,3 +53,34 @@ def test_backward_pass_summed_gradients_all_turkeys():
         total_w2 += g.get_gradient("w2")
     assert abs(total_w1 - 1875) < 1e-6
     assert abs(total_w2 - 3500) < 1e-6
+
+
+def test_cars_forward_pass_sample0():
+    # Chevrolet Chevelle: weight=3.504, hp=1.30, target=18.0, w1=5, w2=5
+    # prediction = 5*3.504 + 5*1.30 = 17.52 + 6.50 = 24.02
+    s0 = CARS_DATASET.samples[0]
+    g = build_graph(s0, CARS_DATASET, 5.0, 5.0)
+    g.forward_pass()
+    assert abs(g.get_value("prediction") - 24.02) < 1e-4
+    assert abs(g.get_value("loss") - 36.2404) < 1e-3
+
+
+def test_cars_backward_pass_sample0():
+    s0 = CARS_DATASET.samples[0]
+    g = build_graph(s0, CARS_DATASET, 5.0, 5.0)
+    g.forward_pass()
+    g.backward_pass()
+    assert abs(g.get_gradient("w1") - 42.1882) < 1e-3
+    assert abs(g.get_gradient("w2") - 15.652) < 1e-3
+
+
+def test_cars_summed_gradients_all_samples():
+    total_w1, total_w2 = 0.0, 0.0
+    for s in CARS_DATASET.samples:
+        g = build_graph(s, CARS_DATASET, 5.0, 5.0)
+        g.forward_pass()
+        g.backward_pass()
+        total_w1 += g.get_gradient("w1")
+        total_w2 += g.get_gradient("w2")
+    assert abs(total_w1 - 266.8534) < 1e-3
+    assert abs(total_w2 - 154.0766) < 1e-3
